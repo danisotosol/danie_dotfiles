@@ -55,7 +55,7 @@ require("lazy").setup({
 
     -- Formatting plugins
     { import = "lazyvim.plugins.extras.lang.typescript" },
-    { import = "lazyvim.plugins.extras.formatting.biome" },
+    { import = "lazyvim.plugins.extras.lang.typescript.biome" },
     { import = "lazyvim.plugins.extras.formatting.prettier" },
 
     -- Linting plugins
