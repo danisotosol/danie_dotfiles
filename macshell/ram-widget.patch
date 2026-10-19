@@ -1,0 +1,77 @@
+Add a "ram" widget to MacShell's bar: RAM in use in GB (MemTotal - MemAvailable, same figure as `free`'s "used"), with a memory-module icon (new Glyph kind "ram"), a warning colour at >=75% (orange) / >=85% (red), and a click that opens btop in the configured terminal. Polling pauses while Game Mode is on or the bar is hidden.
+
+Apply (a MacShell update may overwrite MacBar.qml, so re-apply afterwards):
+  cd ~/.local/share/macshell/MacShell && patch -p1 < <repo>/macshell/ram-widget.patch
+Then enable it by adding "ram" to "barWidgets" in ~/.config/macbar/settings.json.
+settings.json is only read at load, so trigger a reload (edit any MacShell .qml, or restart MacShell).
+
+--- a/MacBar.qml
++++ b/MacBar.qml
+@@ -549,6 +549,11 @@
+                 ctx.bezierCurveTo(10.24, 6.35, 9.4, 3.82, 8.54, 0.45);
+                 ctx.closePath();
+                 ctx.fill();
++            } else if (k === "ram") {
++                // memory module: outlined board, three chips, four pins
++                rrect(1.5, 4.5, 15, 9, 1.8); ctx.stroke();
++                for (i2 = 0; i2 < 3; i2++) poly([4 + i2 * 4, 7.4, 6.2 + i2 * 4, 7.4, 6.2 + i2 * 4, 10.6, 4 + i2 * 4, 10.6], true);
++                for (i2 = 0; i2 < 4; i2++) line(4.5 + i2 * 3, 13.5, 4.5 + i2 * 3, 15.8);
+             } else if (k === "wifi") {
+                 var radii = [3.8, 7.2, 10.6];
+                 for (i2 = 0; i2 < 3; i2++) {
+@@ -1459,6 +1464,27 @@
+             }
+         }
+     }
++    // RAM in use (MemTotal - MemAvailable, the same figure as `free`'s "used"): GB and % of total.
++    // Polled every 3 s, only while the "ram" bar widget is on, the bar is shown and Game Mode is off.
++    property real ramUsedGb: 0
++    property int ramPct: 0
++    function refreshRam() { if (!ramProc.running) ramProc.running = true; }
++    Process {
++        id: ramProc
++        command: ["awk", "/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{printf \"%.1f %d\", (t-a)/1048576, (t-a)*100/t}", "/proc/meminfo"]
++        stdout: StdioCollector {
++            onStreamFinished: {
++                var p = text.trim().split(" ");
++                root.ramUsedGb = parseFloat(p[0]) || 0;
++                root.ramPct = parseInt(p[1]) || 0;
++            }
++        }
++    }
++    Timer {
++        interval: 3000; repeat: true; triggeredOnStart: true
++        running: root.barWidgetEnabled("ram") && root.barEnabled && !root.gaming
++        onTriggered: root.refreshRam()
++    }
+     readonly property var menuTitles: [
+         { id: "apple", label: "" },
+         { id: "app", label: appName, bold: true },
+@@ -4716,6 +4742,27 @@
+                             }
+                         }
+ 
++                        // RAM in use (optional widget "ram")
++                        Item {
++                            id: ramBtn
++                            visible: root.barWidgetEnabled("ram")
++                            width: root.barWidgetEnabled("ram") ? ramRow.width + 14 : 0; height: 28
++                            readonly property color ramColor: root.ramPct >= 85 ? "#FF453A" : (root.ramPct >= 75 ? "#FF9F0A" : bpal.fg)   // red / orange when memory is tight
++                            Row {
++                                id: ramRow
++                                anchors.centerIn: parent
++                                spacing: 5
++                                Glyph { anchors.verticalCenter: parent.verticalCenter; width: 16; height: 16; kind: "ram"; color: ramBtn.ramColor }
++                                Text {
++                                    anchors.verticalCenter: parent.verticalCenter
++                                    text: root.ramUsedGb.toFixed(1) + " GB"
++                                    color: ramBtn.ramColor
++                                    font.family: bpal.fam; font.pixelSize: 12
++                                }
++                            }
++                            MouseArea { anchors.fill: parent; onClicked: { ui.pop = ""; root.sh(root.terminal + " -e btop"); } }
++                        }
++
+                         // Bluetooth has its own optional widget; it remains visible when the radio is off.
+                         Item {
+                             id: btBtn

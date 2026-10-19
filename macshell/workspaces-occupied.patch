@@ -1,0 +1,23 @@
+Hide empty workspaces in MacShell's bar: wsMin 4 -> 0, and only list workspaces that have windows (plus the focused one).
+
+Apply (after ram-widget.patch, or alone):
+  cd ~/.local/share/macshell/MacShell && patch -p1 < <repo>/macshell/workspaces-occupied.patch
+
+--- a/MacBar.qml
++++ b/MacBar.qml
+@@ -3791,13 +3791,13 @@
+     function hlWorkspace(sel) {      // Hyprland 0.55+ (Lua) workspace switch
+         Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + sel + "\" })"]);
+     }
+-    property int wsMin: 4                    // always show at least workspaces 1..wsMin (set 0 to show only existing ones)
++    property int wsMin: 0                    // always show at least workspaces 1..wsMin (0 = only workspaces with windows, plus the focused one)
+     readonly property var wsIds: {
+         var ids = [], vals = Hyprland.workspaces.values;
+         for (var i = 1; i <= root.wsMin; i++) ids.push(i);
+         for (var j = 0; j < vals.length; j++) {
+             var id = vals[j].id;
+-            if (id > 0 && ids.indexOf(id) < 0) ids.push(id);
++            if (id > 0 && ids.indexOf(id) < 0 && root.wsOccupied(id)) ids.push(id);
+         }
+         var fw = Hyprland.focusedWorkspace;
+         if (fw && fw.id > 0 && ids.indexOf(fw.id) < 0) ids.push(fw.id);
