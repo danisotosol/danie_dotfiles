@@ -1,0 +1,351 @@
+Add a "claude" widget to MacShell's bar: the Claude logo plus the % used of the plan's 5-hour session, coloured by level (green < 50%, yellow < 75%, orange < 90%, red from there on). A click opens a popover with the account email, the 5-hour and 7-day limits (coloured meter, % used, reset time) and today's tokens per model (a share bar and a dot in each model family's colour; input, output, cache write / read).
+
+Data comes from <repo>/macshell/claude-usage.py, polled every 60 s (and when the popover opens) while the widget is on, the bar is shown and Game Mode is off:
+  - plan limits and account email: ~/.cache/claude-usage.json, written by <repo>/claude/statusline.sh, which must be
+    Claude Code's status line ("statusLine": {"type": "command", "command": "~/Documents/danie_dotfiles/claude/statusline.sh"}
+    in ~/.claude/settings.json). They only refresh while a Claude Code session is running.
+  - tokens today: ~/.claude/projects/**/*.jsonl, deduplicated by (message.id, requestId).
+The logo is <repo>/macshell/claude-logo.svg. Both paths are hardcoded under ~/Documents/danie_dotfiles/macshell (claudeDir in MacBar.qml).
+
+Apply (after ram-widget.patch; a MacShell update may overwrite MacBar.qml, so re-apply afterwards):
+  cd ~/.local/share/macshell/MacShell && patch -p1 < <repo>/macshell/claude-widget.patch
+Then enable it by adding "claude" to "barWidgets" in ~/.config/macbar/settings.json.
+settings.json is only read at load, and patching MacBar.qml does not trigger Quickshell's hot reload, so restart MacShell:
+  qs kill -p ~/.local/share/macshell/MacShell; uwsm-app -t service -- sh ~/.local/share/macshell/start
+
+--- a/MacBar.qml
++++ b/MacBar.qml
+@@ -1485,6 +1485,50 @@
+         running: root.barWidgetEnabled("ram") && root.barEnabled && !root.gaming
+         onTriggered: root.refreshRam()
+     }
++    // Claude usage: plan limits (5-hour session, 7-day window), account email and tokens used today, from the
++    // dotfiles' macshell/claude-usage.py (that file says where the numbers come from). Polled every 60 s while the
++    // "claude" bar widget is on, the bar is shown and Game Mode is off, and again when its popover opens.
++    readonly property string claudeDir: Quickshell.env("HOME") + "/Documents/danie_dotfiles/macshell"
++    readonly property string claudeLogo: "file://" + claudeDir + "/claude-logo.svg"
++    property var claudeUsage: null
++    function refreshClaude() { if (!claudeProc.running) claudeProc.running = true; }
++    Process {
++        id: claudeProc
++        command: ["python3", root.claudeDir + "/claude-usage.py"]
++        stdout: StdioCollector {
++            onStreamFinished: { try { root.claudeUsage = JSON.parse(text); } catch (err) { } }
++        }
++    }
++    Timer {
++        interval: 60000; repeat: true; triggeredOnStart: true
++        running: root.barWidgetEnabled("claude") && root.barEnabled && !root.gaming
++        onTriggered: root.refreshClaude()
++    }
++    // a limit only counts while its window is open: past resets_at it has started over and there is no new figure yet
++    function claudeLimit(name) {
++        var l = claudeUsage ? claudeUsage[name] : null;
++        return (l && l.resets_at * 1000 > Date.now()) ? l : null;
++    }
++    // usage level: green below 50%, yellow below 75%, orange below 90%, red from there on
++    function claudeLevelColor(pct) { return pct >= 90 ? "#FF453A" : (pct >= 75 ? "#FF9F0A" : (pct >= 50 ? "#FFD60A" : "#30D158")); }
++    // one colour per model family (opus in Claude's terracotta); unknown families are grey
++    readonly property var claudeFamilyColors: ({ opus: "#D97757", sonnet: "#6A9BCC", haiku: "#8FB573", fable: "#BF5AF2" })
++    function claudeModelColor(family) { return claudeFamilyColors[family] || "#8E8E93"; }
++    function claudeTokens(n) {
++        if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
++        if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
++        if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
++        return String(n);
++    }
++    function claudeWhen(sec) {
++        var d = new Date(sec * 1000), now = new Date();
++        var t = Qt.formatDateTime(d, use24h ? "HH:mm" : "h:mm AP");
++        return d.toDateString() === now.toDateString() ? t : Qt.formatDateTime(d, "ddd") + " " + t;
++    }
++    function claudeAgo(sec) {
++        var m = Math.max(0, Math.floor(Date.now() / 60000 - sec / 60));
++        return m < 1 ? "just now" : (m < 60 ? m + " min ago" : (m < 1440 ? Math.floor(m / 60) + " h ago" : Math.floor(m / 1440) + " d ago"));
++    }
+     readonly property var menuTitles: [
+         { id: "apple", label: "" },
+         { id: "app", label: appName, bold: true },
+@@ -4140,7 +4184,7 @@
+                 }
+                 // bounding box of all glass that is on screen right now (popovers, notification popups) + a refraction margin
+                 readonly property rect glassRect: {
+-                    var items = [menuPop, cc, cal, wifiPop, btPop, trayPop, notifPop, toastArea, volPop, kbPop, levelOsd], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
++                    var items = [menuPop, cc, cal, wifiPop, btPop, trayPop, notifPop, toastArea, volPop, kbPop, claudePop, levelOsd], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+                     for (var i = 0; i < items.length; i++) {
+                         var it = items[i];
+                         if (!it.visible) continue;
+@@ -4150,7 +4194,7 @@
+                     return any ? Qt.rect(x0 - 64, y0 - 64, x1 - x0 + 128, y1 - y0 + 128) : Qt.rect(0, 0, 0, 0);
+                 }
+                 readonly property bool isMenu: ["apple", "app", "file", "edit", "view", "window", "help"].indexOf(pop) >= 0
+-                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || btPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible
++                readonly property bool anyVisible: menuPop.visible || cc.visible || cal.visible || wifiPop.visible || btPop.visible || trayPop.visible || notifPop.visible || toastArea.visible || volPop.visible || kbPop.visible || claudePop.visible
+                 onAnyVisibleChanged: root.popCount += (anyVisible ? 1 : -1)
+                 onPopChanged: {
+                     if (pop !== "" && pop !== "spot") toneT.restart();
+@@ -4163,6 +4207,7 @@
+                     if (root.notifOpen) root.notifUnread = 0;
+                     if (pop === "wifi") { root.wifiError = ""; root.scanWifi(); root.refreshConnections(); }
+                     if (pop === "bt") { root.btError = ""; root.scanBt(); root.refreshBt(); }
++                    if (pop === "claude") root.refreshClaude();
+                     if (pop === "spot") {
+                         spMode = "home"; spQuery = ""; spSel = 0; spExpanded = ({}); clipMenu = false;
+                         spInput.text = ""; appsInput.text = ""; clipInput.text = ""; emojiInput.text = "";
+@@ -4763,6 +4808,40 @@
+                             MouseArea { anchors.fill: parent; onClicked: { ui.pop = ""; root.sh(root.terminal + " -e btop"); } }
+                         }
+ 
++                        // Claude plan usage (optional widget "claude"): logo + % of the 5-hour session, click = details popover
++                        Item {
++                            id: claudeBtn
++                            visible: root.barWidgetEnabled("claude")
++                            width: root.barWidgetEnabled("claude") ? claudeRow.width + 14 : 0; height: 28
++                            readonly property var lim: root.claudeLimit("five_hour")
++                            Rectangle {
++                                anchors.centerIn: parent
++                                width: parent.width - 2; height: parent.height - 6; radius: 6
++                                color: ui.pop === "claude" ? bpal.hover : "transparent"
++                            }
++                            Row {
++                                id: claudeRow
++                                anchors.centerIn: parent
++                                spacing: 5
++                                Image {
++                                    anchors.verticalCenter: parent.verticalCenter
++                                    width: 15; height: 15
++                                    source: root.claudeLogo
++                                    sourceSize: Qt.size(64, 64)
++                                    fillMode: Image.PreserveAspectFit
++                                    smooth: true
++                                    mipmap: true
++                                }
++                                Text {
++                                    anchors.verticalCenter: parent.verticalCenter
++                                    text: claudeBtn.lim ? Math.round(claudeBtn.lim.used_percentage) + "%" : "–"
++                                    color: claudeBtn.lim ? root.claudeLevelColor(claudeBtn.lim.used_percentage) : bpal.fg2
++                                    font.family: bpal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
++                                }
++                            }
++                            MouseArea { anchors.fill: parent; onClicked: ui.openPop("claude", claudeBtn.mapToItem(ui, 0, 0).x + claudeBtn.width / 2) }
++                        }
++
+                         // Bluetooth has its own optional widget; it remains visible when the radio is off.
+                         Item {
+                             id: btBtn
+@@ -5197,6 +5276,206 @@
+                     }
+                 }
+ 
++                // Claude usage popover: account, plan limits and tokens used today
++                Item {
++                    id: claudePop
++                    z: 10
++                    width: 290
++                    height: claudeCol.height + 28
++                    x: Math.max(6, Math.min(ui.width - width * root.barPopupScale - 8, ui.menuX - width / 2))
++                    y: root.barHeight + 6
++                    opacity: ui.pop === "claude" ? 1 : 0
++                    visible: opacity > 0
++                    scale: root.barPopupScale * (ui.pop === "claude" ? 1 : 0.96)
++                    transformOrigin: Item.Top
++                    Behavior on opacity { NumberAnimation { duration: 110 } }
++                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
++                    LGlass {
++                        anchors.fill: parent
++                        backdrop: ui.glassSrc
++                        shaderUrl: root.glassShaderUrl
++                        liquid: root.liquidActive
++                        dark: root.effDark
++                        bx: claudePop.x; by: claudePop.y
++                        cornerR: 22
++                        tint: root.glassOpacity
++                        thickness: 22
++                        strength: 0.55 * root.glassLiquid
++                        rim: root.glassRim
++                        grain: root.glassGrain
++                        blur: 42
++                        debug: root.glassDebug
++                        onShaderError: root.glassState = "failed"
++                        rimTint: 1
++                        ringW: 1.4
++                    }
++                    MenuBorder {
++                        z: 2
++                        anchors.fill: parent
++                        cornerR: 22
++                        dark: root.effDark
++                        tint: root.menuBorderColor
++                    }
++                    MouseArea { anchors.fill: parent }
++                    Column {
++                        id: claudeCol
++                        x: 14; y: 14
++                        width: parent.width - 28
++                        spacing: 10
++                        // header: logo, name and the account the limits belong to
++                        Row {
++                            width: parent.width
++                            spacing: 10
++                            Image {
++                                anchors.verticalCenter: parent.verticalCenter
++                                width: 24; height: 24
++                                source: root.claudeLogo
++                                sourceSize: Qt.size(96, 96)
++                                fillMode: Image.PreserveAspectFit
++                                smooth: true
++                                mipmap: true
++                            }
++                            Column {
++                                anchors.verticalCenter: parent.verticalCenter
++                                width: parent.width - 34
++                                spacing: 1
++                                Text {
++                                    text: "Claude"
++                                    color: pal.fg
++                                    font.family: pal.fam; font.pixelSize: 13; font.weight: Font.DemiBold
++                                }
++                                Text {
++                                    width: parent.width
++                                    visible: text !== ""
++                                    elide: Text.ElideMiddle
++                                    text: (root.claudeUsage && root.claudeUsage.email) || ""
++                                    color: pal.fg2
++                                    font.family: pal.fam; font.pixelSize: 11
++                                }
++                            }
++                        }
++                        Repeater {
++                            model: [{ key: "five_hour", label: "Session (5 h)" }, { key: "seven_day", label: "Week (7 d)" }]
++                            delegate: Column {
++                                id: claudeLimRow
++                                required property var modelData
++                                readonly property var lim: root.claudeLimit(modelData.key)
++                                readonly property color tone: lim ? root.claudeLevelColor(lim.used_percentage) : pal.fg2
++                                width: parent.width
++                                spacing: 4
++                                Item {
++                                    width: parent.width; height: 16
++                                    Text {
++                                        anchors.verticalCenter: parent.verticalCenter
++                                        text: claudeLimRow.modelData.label
++                                        color: pal.fg
++                                        font.family: pal.fam; font.pixelSize: 12
++                                    }
++                                    Text {
++                                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
++                                        text: claudeLimRow.lim ? Math.round(claudeLimRow.lim.used_percentage) + "%" : "–"
++                                        color: claudeLimRow.tone
++                                        font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
++                                    }
++                                }
++                                Rectangle {
++                                    width: parent.width; height: 5; radius: 2.5
++                                    color: pal.track
++                                    Rectangle {
++                                        width: claudeLimRow.lim ? Math.max(height, parent.width * Math.min(claudeLimRow.lim.used_percentage, 100) / 100) : 0
++                                        height: parent.height; radius: 2.5
++                                        color: claudeLimRow.tone
++                                    }
++                                }
++                                Text {
++                                    text: claudeLimRow.lim ? "Resets " + root.claudeWhen(claudeLimRow.lim.resets_at) : "No figure for this window yet"
++                                    color: pal.fg2
++                                    font.family: pal.fam; font.pixelSize: 11
++                                }
++                            }
++                        }
++                        Rectangle { width: parent.width; height: 1; color: pal.sep }
++                        Item {
++                            width: parent.width; height: 16
++                            Text {
++                                anchors.verticalCenter: parent.verticalCenter
++                                text: "Tokens today"
++                                color: pal.fg
++                                font.family: pal.fam; font.pixelSize: 12
++                            }
++                            Text {
++                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
++                                text: root.claudeUsage ? root.claudeTokens(root.claudeUsage.today.total) : "–"
++                                color: pal.fg
++                                font.family: pal.fam; font.pixelSize: 12; font.weight: Font.DemiBold
++                            }
++                        }
++                        // each model's share of today's tokens, in its colour
++                        Row {
++                            id: claudeShare
++                            readonly property var models: root.claudeUsage ? root.claudeUsage.today.models : []
++                            visible: models.length > 0
++                            width: parent.width; height: 6
++                            spacing: 2
++                            Repeater {
++                                model: claudeShare.models
++                                delegate: Rectangle {
++                                    required property var modelData
++                                    width: (claudeShare.width - claudeShare.spacing * (claudeShare.models.length - 1)) * modelData.total / Math.max(1, root.claudeUsage.today.total)
++                                    height: claudeShare.height; radius: 3
++                                    color: root.claudeModelColor(modelData.family)
++                                }
++                            }
++                        }
++                        Repeater {
++                            model: claudeShare.models
++                            delegate: Column {
++                                id: claudeModelRow
++                                required property var modelData
++                                width: parent.width
++                                spacing: 2
++                                Item {
++                                    width: parent.width; height: 15
++                                    Rectangle {
++                                        anchors.verticalCenter: parent.verticalCenter
++                                        width: 8; height: 8; radius: 4
++                                        color: root.claudeModelColor(claudeModelRow.modelData.family)
++                                    }
++                                    Text {
++                                        x: 14
++                                        anchors.verticalCenter: parent.verticalCenter
++                                        text: claudeModelRow.modelData.model
++                                        color: pal.fg
++                                        font.family: pal.fam; font.pixelSize: 12
++                                    }
++                                    Text {
++                                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
++                                        text: root.claudeTokens(claudeModelRow.modelData.total)
++                                        color: pal.fg2
++                                        font.family: pal.fam; font.pixelSize: 12
++                                    }
++                                }
++                                Text {
++                                    x: 14
++                                    text: "in " + root.claudeTokens(claudeModelRow.modelData.input) + " · out " + root.claudeTokens(claudeModelRow.modelData.output)
++                                        + " · cache " + root.claudeTokens(claudeModelRow.modelData.cache_write) + " w / " + root.claudeTokens(claudeModelRow.modelData.cache_read) + " r"
++                                    color: pal.fg3
++                                    font.family: pal.fam; font.pixelSize: 11
++                                }
++                            }
++                        }
++                        Text {
++                            width: parent.width
++                            wrapMode: Text.WordWrap
++                            text: root.claudeUsage && root.claudeUsage.limits_updated_at
++                                ? "Limits updated " + root.claudeAgo(root.claudeUsage.limits_updated_at)
++                                : "Limits come from Claude Code's status line: open a session to fetch them"
++                            color: pal.fg3
++                            font.family: pal.fam; font.pixelSize: 11
++                        }
++                    }
++                }
++
+                 // ═════════ notification popups (top right, under the bar) ═════════
+                 Item {
+                     id: toastMask
+@@ -5212,7 +5491,7 @@
+                     // a menu / popover open where the notifications are: they slide down below it, and back up after
+                     readonly property real popBottom: {
+                         if (ui.pop === "" || ui.pop === "spot") return 0;
+-                        var items = [menuPop, cc, cal, wifiPop, trayPop, volPop, kbPop], b = 0;
++                        var items = [menuPop, cc, cal, wifiPop, trayPop, volPop, kbPop, claudePop], b = 0;
+                         for (var i = 0; i < items.length; i++) {
+                             var it = items[i];
+                             if (!it || !it.visible) continue;
