@@ -30,7 +30,6 @@ checkout at `~/dotfiles-symphony`, installed with stow. This repo holds what sit
 | `macshell/` | MacShell bar patches (RAM widget, hide empty workspaces, Claude usage widget) and the widget's data feed | by hand, see below |
 | `assets/` | README screenshot | — |
 | `docs/` | notes from the July 2026 desktop migration (historical) | — |
-| `CLAUDE.md` | instructions for Claude Code in this repo (project memory through `memory-rag`) | — |
 
 ## Install on a new machine
 
@@ -70,3 +69,15 @@ Then, by hand:
 - `kitty/kitty.conf` is stale. The live `~/.config/kitty/kitty.conf` is a real file managed by
   Symphony (it includes `~/.config/symphony/current/.config/kitty/colors.conf`), so
   `make link-kitty` skips it.
+
+## License
+
+MIT, see [`LICENSE`](LICENSE). Third-party parts keep their own licences:
+
+- `nvim/` started from [Gentleman.Dots](https://github.com/Gentleman-Programming/Gentleman.Dots): Apache-2.0,
+  see [`nvim/LICENSE`](nvim/LICENSE).
+- `claude/skills/ai-seo`, `copywriting`, `product-marketing`, `seo-audit` and `reverse-engineer-anything`: MIT,
+  each with its own `LICENSE`.
+- `macshell/*.patch` modify [MacShell](https://github.com/0-ss/MacShell) (MIT).
+- `macshell/claude-logo.svg`: from [@vscode/codicons](https://github.com/microsoft/vscode-codicons), CC-BY-4.0;
+  the attribution is in the file.
