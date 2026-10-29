@@ -1,5 +1,5 @@
 #!/bin/sh
-# Claude Code status line: "<model> · ctx N% · 5h N%".
+# Claude Code status line: "<model> · ctx N% · 5h N% →HH:MM · 7d N% →M/D".
 # Side job: saves the plan's rate limits (5-hour session, 7-day window) and the account's
 # email to a cache file that MacShell's "claude" bar widget reads through
 # macshell/claude-usage.py.
@@ -20,8 +20,15 @@ if printf '%s' "$input" | jq -e '.rate_limits' >/dev/null 2>&1; then
     mv -f "$cache.$$" "$cache"
 fi
 
-printf '%s' "$input" | jq -r '[
-  .model.display_name,
-  "ctx \(.context_window.used_percentage // 0 | floor)%",
-  (.rate_limits.five_hour.used_percentage // empty | "5h \(floor)%")
-] | join(" · ")'
+# resets_at is epoch seconds; the 5-hour window shows the reset time, the 7-day one the date.
+printf '%s' "$input" | jq -r '
+  def window($label; $fmt):
+    select(.used_percentage != null)
+    | "\($label) \(.used_percentage | floor)%"
+      + (if .resets_at then " →\(.resets_at | strflocaltime($fmt))" else "" end);
+  [
+    .model.display_name,
+    "ctx \(.context_window.used_percentage // 0 | floor)%",
+    (.rate_limits.five_hour // empty | window("5h"; "%H:%M")),
+    (.rate_limits.seven_day // empty | window("7d"; "%-m/%-d"))
+  ] | join(" · ")'
