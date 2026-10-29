@@ -10,9 +10,9 @@ LNK = lnk() { \
 	fi; \
 }; lnk
 
-.PHONY: link link-kitty link-nvim link-git link-claude
+.PHONY: link link-kitty link-nvim link-git link-claude link-handy
 
-link: link-kitty link-nvim link-git link-claude
+link: link-kitty link-nvim link-git link-claude link-handy
 
 link-kitty:
 	@$(LNK) "$(DOTFILES)/kitty/kitty.conf" "$(HOME)/.config/kitty/kitty.conf"
@@ -35,3 +35,8 @@ link-claude:
 	@for f in "$(DOTFILES)"/claude/agents/*.md; do \
 		$(LNK) "$$f" "$(HOME)/.claude/agents/$$(basename "$$f")"; \
 	done
+
+# Targets the unit uwsm generates from ~/.config/autostart/Handy.desktop.
+link-handy:
+	@$(LNK) "$(DOTFILES)/handy/igpu.conf" "$(HOME)/.config/systemd/user/app-Handy@autostart.service.d/igpu.conf"
+	@systemctl --user daemon-reload
