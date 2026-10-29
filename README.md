@@ -4,12 +4,16 @@ Personal configs for an Arch Linux laptop running Hyprland. The desktop itself
 (Hyprland, theming, scripts) comes from a [Symphony](https://github.com/vyrx-dev/symphony)
 checkout at `~/dotfiles-symphony`, installed with stow. This repo holds what sits on top of it.
 
+![Hyprland desktop with the MacShell bar, the Claude usage widget open, and the dock](assets/desktop.webp)
+
 ## Desktop stack
 
 - **Session:** Hyprland under uwsm, picked in SDDM. KDE Plasma stays installed as a separate session.
 - **Configs:** Symphony (`~/dotfiles-symphony`, local commits on top of upstream, never pushed).
   ML4W was rolled back; its data is still in `~/.mydotfiles` (see [`docs/symphony-rollback.md`](docs/symphony-rollback.md)).
 - **Bar and dock:** MacShell (Quickshell, `~/.local/share/macshell`), patched with the files in `macshell/`. Waybar is disabled.
+- **Icons:** [MacOS-Like](https://github.com/Scrimas/MacOS-Like) Dark, the pack MacShell's README recommends, set with
+  `QS_ICON_THEME=MacOS-Like-Dark` in `~/.config/macshell/env`.
 - **Dictation:** [Handy](https://handy.computer/) with the Parakeet TDT 0.6B v3 model. Ctrl+L toggles it through a
   Hyprland bind in Symphony's `bindings.conf`, because Handy's own global shortcut (Tauri, X11) never fires on Wayland.
 
@@ -24,6 +28,7 @@ checkout at `~/dotfiles-symphony`, installed with stow. This repo holds what sit
 | `claude/skills/`, `claude/agents/` | Claude Code skills and the `blind-reviewer` agent; third-party skills keep their own `LICENSE` | `make link-claude` → `~/.claude/skills/`, `~/.claude/agents/` |
 | `handy/igpu.conf` | systemd drop-in that keeps Handy on the Intel iGPU (Mesa EGL, no NVIDIA Vulkan ICD), so the NVIDIA dGPU can enter runtime suspend | `make link-handy` → `~/.config/systemd/user/app-Handy@autostart.service.d/` |
 | `macshell/` | MacShell bar patches (RAM widget, hide empty workspaces, Claude usage widget) and the widget's data feed | by hand, see below |
+| `assets/` | README screenshot | — |
 | `docs/` | notes from the July 2026 desktop migration (historical) | — |
 | `CLAUDE.md` | instructions for Claude Code in this repo (project memory through `memory-rag`) | — |
 
