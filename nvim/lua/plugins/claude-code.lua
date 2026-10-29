@@ -27,7 +27,7 @@ return {
     { "<leader>aa", "<cmd>ClaudeCodeDiffAccept<cr>", desc = "Accept diff" },
     { "<leader>ad", "<cmd>ClaudeCodeDiffDeny<cr>", desc = "Deny diff" },
     { "<leader>aq", "<cmd>ClaudeCodeCloseAllDiffs<cr>", desc = "Close all diffs" },
-    -- Estado de la sesion
+    -- Session status
     { "<leader>aS", "<cmd>ClaudeCodeStatus<cr>", desc = "Claude status" },
   },
 }

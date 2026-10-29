@@ -1,5 +1,5 @@
-# Neovim - estado local, no configuracion
+# Neovim - local state, not config
 nvim/.luarc.json
 
-# Claude Code - estado/memoria local de sesion
+# Claude Code - local session state and memory
 .claude/

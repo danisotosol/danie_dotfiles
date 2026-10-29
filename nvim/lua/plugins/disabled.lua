@@ -39,7 +39,7 @@ return {
   {
     -- Plugin: gemini-cli.nvim
     -- URL: https://github.com/jonroosevelt/gemini-cli.nvim
-    -- No lo va a usar - desactivado para que no pregunte por instalar el CLI al abrir nvim
+    -- Unused; disabled so nvim stops offering to install the CLI on startup
     "jonroosevelt/gemini-cli.nvim",
     enabled = false,
   },
