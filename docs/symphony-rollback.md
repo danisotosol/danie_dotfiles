@@ -1,13 +1,13 @@
 # Rollback ML4W → Symphony
 
-Fecha: 2026-07-05
-Contexto: antes de correr el installer de Symphony (`~/dotfiles-symphony/install.sh`), se sacaron los symlinks de ML4W en `~/.config` para que el `stow` de Symphony no chocara (ver [`symphony-migration-investigation.md`](symphony-migration-investigation.md)). Los datos originales de ML4W **no se borraron** — siguen intactos en `~/.mydotfiles/com.ml4w.dotfiles.stable/.config/`. Unlinkear un symlink no toca el destino.
+Date: 2026-07-05
+Context: before running the Symphony installer (`~/dotfiles-symphony/install.sh`), the ML4W symlinks in `~/.config` were removed so that Symphony's `stow` would not conflict (see [`symphony-migration-investigation.md`](symphony-migration-investigation.md)). The original ML4W data **was not deleted** — it remains intact in `~/.mydotfiles/com.ml4w.dotfiles.stable/.config/`. Unlinking a symlink does not touch the target.
 
-`~/.config/nvim` NO se tocó — se excluyó del stow de Symphony (`^nvim$` agregado a `~/dotfiles-symphony/.stow-local-ignore`) para conservar el LazyVim + plugins IA de este repo.
+`~/.config/nvim` was NOT touched — it was excluded from Symphony's stow (`^nvim$` added to `~/dotfiles-symphony/.stow-local-ignore`) to keep this repo's LazyVim + AI plugins.
 
-## Symlinks removidos (targets originales, para restaurar)
+## Removed symlinks (original targets, for restoring)
 
-Primera tanda (antes de correr `install.sh`):
+First batch (before running `install.sh`):
 
 ```bash
 ln -sf ../.mydotfiles/com.ml4w.dotfiles.stable/.config/fish ~/.config/fish
@@ -19,7 +19,7 @@ ln -sf ../.mydotfiles/com.ml4w.dotfiles.stable/.config/wlogout ~/.config/wlogout
 ln -sf ../.mydotfiles/com.ml4w.dotfiles.stable/.config/nwg-dock-hyprland ~/.config/nwg-dock-hyprland
 ```
 
-Segunda tanda (el primer `install.sh` abortó en el paso de stow porque estos también eran symlinks ML4W y no estaban en la lista original — los sacó Claude después de diagnosticar el conflicto):
+Second batch (the first `install.sh` run aborted at the stow step because these were also ML4W symlinks and were not in the original list — Claude removed them after diagnosing the conflict):
 
 ```bash
 ln -sf ../.mydotfiles/com.ml4w.dotfiles.stable/.config/btop ~/.config/btop
@@ -31,14 +31,14 @@ ln -sf ../.mydotfiles/com.ml4w.dotfiles.stable/.config/matugen ~/.config/matugen
 ln -sf ../.mydotfiles/com.ml4w.dotfiles.stable/.config/swaync ~/.config/swaync
 ```
 
-`~/.config/kitty` además tenía un directorio real (no symlink) recreado entre medio (probablemente por el propio proceso de instalación de paquetes) — `stow.sh` lo detectó y lo backupeó solo, en `~/dotfiles-backup/.config/kitty`. `~/.local/share/applications` real también se backupeó ahí (`~/dotfiles-backup/.local/share/applications`).
+`~/.config/kitty` also had a real directory (not a symlink) recreated in between (probably by the package installation process itself) — `stow.sh` detected it and backed it up on its own, to `~/dotfiles-backup/.config/kitty`. The real `~/.local/share/applications` was also backed up there (`~/dotfiles-backup/.local/share/applications`).
 
-**Estado actual: el `stow` de Symphony ya corrió y linkeó todo exitosamente** — `~/.config/{hypr,waybar,rofi,kitty,fish,btop,fastfetch,gtk-3.0,gtk-4.0,matugen,swaync,...}` ya apuntan a `~/dotfiles-symphony/.config/*`. Para deshacer: borrar esos symlinks (`rm ~/.config/<X>`, no destruye nada de Symphony) y reponer los `ln -sf` de ML4W de arriba (ambas tandas).
+**Current state: Symphony's `stow` has already run and linked everything successfully** — `~/.config/{hypr,waybar,rofi,kitty,fish,btop,fastfetch,gtk-3.0,gtk-4.0,matugen,swaync,...}` now point to `~/dotfiles-symphony/.config/*`. To undo: delete those symlinks (`rm ~/.config/<X>`, destroys nothing in Symphony) and put back the ML4W `ln -sf` commands above (both batches).
 
-## Para deshacer Symphony del todo
+## To undo Symphony completely
 
-`~/dotfiles-symphony/uninstall.sh` corre `stow -D .` (saca los symlinks de Symphony) y `restore_backups()` (restaura desde `~/dotfiles-backup*` el backup más reciente que haya hecho `stow.sh` de cosas que NO eran symlinks — no aplica a fish/hypr/kitty/rofi/waybar/wlogout/nwg-dock-hyprland porque esos ya eran symlinks y `backup_if_exists` no los tocó). Para volver 100% a ML4W: correr `uninstall.sh` y después los `ln -sf` de arriba.
+`~/dotfiles-symphony/uninstall.sh` runs `stow -D .` (removes Symphony's symlinks) and `restore_backups()` (restores from `~/dotfiles-backup*` the most recent backup `stow.sh` made of things that were NOT symlinks — does not apply to fish/hypr/kitty/rofi/waybar/wlogout/nwg-dock-hyprland because those were already symlinks and `backup_if_exists` did not touch them). To go back 100% to ML4W: run `uninstall.sh` and then the `ln -sf` commands above.
 
-## Estado (2026-07-05, antes de ejecutar install.sh)
+## State (2026-07-05, before running install.sh)
 
-Symlinks de ML4W recién removidos, `~/.config/nvim` intacto. Repo Symphony clonado en `~/dotfiles-symphony` (rama `main`, correcto — no el `vyrx-dev/dotfiles` roto que documenta el README oficial). `install.sh` **todavía no se ejecutó** — requiere sudo y prompts interactivos (`gum confirm`, selector de apps opcionales, elección de shell), así que lo corre el usuario directamente en su terminal.
+ML4W symlinks just removed, `~/.config/nvim` intact. Symphony repo cloned at `~/dotfiles-symphony` (branch `main`, correct — not the broken `vyrx-dev/dotfiles` that the official README documents). `install.sh` **has not been run yet** — it requires sudo and interactive prompts (`gum confirm`, optional apps selector, shell choice), so the user runs it directly in their terminal.

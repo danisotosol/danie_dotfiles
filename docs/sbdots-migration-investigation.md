@@ -1,119 +1,119 @@
-# Auditoría instalador sbdots (`sbalghari/sbdots`) — posible migración desde ML4W
+# sbdots installer audit (`sbalghari/sbdots`) — possible migration from ML4W
 
-Fecha: 2026-07-05
-Contexto: evaluación de abandonar ML4W y migrar el setup Hyprland actual (Arch, Hyprland 0.55.4, ML4W + reskin manual estilo sbdots ya aplicado) al framework completo sbdots corriendo su instalador. sbdots no es una colección de dotfiles para copiar a mano: es un paquete de Arch (PKGBUILD) + CLI Python (Typer) con dos entrypoints (`sbdots` inicializador, `sbdotsctl` control runtime), dos daemons systemd de usuario (`sbdots-actions`, `sbdots-clipboard-listener`), un binario C++ cliente de socket, y dotfiles en `/usr/share/sbdots`. La config de Hyprland es en formato Lua (`hyprland.lua`, API `hl.on`/`hl.exec_cmd`, introducido en Hyprland 0.55 — compatible con el 0.55.4 instalado; `hyprland.lua` tiene precedencia sobre `hyprland.conf`). Theming 100% matugen. Arch-only explícito (`pacman -Qq` y `yay -S` hardcodeados). Licencia GPL-3.0, versión declarada 0.0.3-alpha.
+Date: 2026-07-05
+Context: evaluation of dropping ML4W and migrating the current Hyprland setup (Arch, Hyprland 0.55.4, ML4W + manual sbdots-style reskin already applied) to the full sbdots framework by running its installer. sbdots is not a collection of dotfiles to copy by hand: it is an Arch package (PKGBUILD) + Python CLI (Typer) with two entrypoints (`sbdots` initializer, `sbdotsctl` runtime control), two user systemd daemons (`sbdots-actions`, `sbdots-clipboard-listener`), a C++ socket client binary, and dotfiles in `/usr/share/sbdots`. The Hyprland config is in Lua format (`hyprland.lua`, `hl.on`/`hl.exec_cmd` API, introduced in Hyprland 0.55 — compatible with the installed 0.55.4; `hyprland.lua` takes precedence over `hyprland.conf`). Theming 100% matugen. Explicitly Arch-only (`pacman -Qq` and `yay -S` hardcoded). GPL-3.0 license, declared version 0.0.3-alpha.
 
-## Veredicto: 🔴 ROJO
+## Verdict: 🔴 RED
 
-ROJO para migración completa (correr el instalador encima del sistema vivo). El rojo NO es por malicia — el código es chico, legible, sin nada turbio: cero tocamientos de boot/drivers/display manager, sudo solo para pacman/yay, services solo user-scope. El rojo es por viabilidad y pérdida de datos: proyecto congelado por admisión propia del autor, instalador verificablemente roto (`sbdots install` no existe), y borrado destructivo de 17 directorios de `~/.config` **sin backup** (comentario literal `# TODO: Add backups` en el código), que destruiría la instalación ML4W viva y también el reskin manual ya hecho. La estrategia actual de cherry-pickear configs/CSS de sbdots sobre la plumbing ML4W sigue siendo VERDE y es el mejor uso posible de un repo congelado.
+RED for a full migration (running the installer on top of the live system). The red is NOT due to malice — the code is small, readable, with nothing shady: zero touches to boot/drivers/display manager, sudo only for pacman/yay, services user-scope only. The red is due to viability and data loss: project frozen by the author's own admission, verifiably broken installer (`sbdots install` does not exist), and destructive deletion of 17 `~/.config` directories **without backup** (literal comment `# TODO: Add backups` in the code), which would destroy the live ML4W installation and also the manual reskin already done. The current strategy of cherry-picking sbdots configs/CSS on top of the ML4W plumbing remains GREEN and is the best possible use of a frozen repo.
 
-## Comando / entrypoint
+## Command / entrypoint
 
-El README **no publica ningún comando de instalación** — solo dice "You could use the install.sh but it isn't fully tested, so use it at your own risk". El script existe en la raíz del repo:
+The README **does not publish any install command** — it only says "You could use the install.sh but it isn't fully tested, so use it at your own risk". The script exists at the repo root:
 
 ```bash
-# equivalente curl|bash, NUNCA documentado por el autor:
+# curl|bash equivalent, NEVER documented by the author:
 curl -fsSL https://raw.githubusercontent.com/sbalghari/sbdots/main/install.sh | bash
 ```
 
-**BUG VERIFICADO**: el último paso de `install.sh` ejecuta `sbdots install`, pero el CLI Python solo registra el comando `init` (`src/sbdots/__init__.py:47-48`, único `@cli.command()`; el propio mensaje de cancelación del instalador dice "please run 'sbdots init'"). Typer devuelve "No such command 'install'" → `fail "sbdots install failed"` → el bootstrap **aborta después de instalar ~30 paquetes pero antes de tocar ningún dotfile**. El flujo que realmente funciona: correr `install.sh` (o `makepkg` a mano) y después `sbdots init` manualmente.
+**VERIFIED BUG**: the last step of `install.sh` runs `sbdots install`, but the Python CLI only registers the `init` command (`src/sbdots/__init__.py:47-48`, the only `@cli.command()`; the installer's own cancellation message says "please run 'sbdots init'"). Typer returns "No such command 'install'" → `fail "sbdots install failed"` → the bootstrap **aborts after installing ~30 packages but before touching any dotfile**. The flow that actually works: run `install.sh` (or `makepkg` by hand) and then `sbdots init` manually.
 
-## Cadena de ejecución verificada (código leído línea por línea)
+## Verified execution chain (code read line by line)
 
-**Fase 1 — `install.sh` (bash, `set -e`):**
+**Phase 1 — `install.sh` (bash, `set -e`):**
 
-1. `install_system_deps()`: `sudo pacman -S --needed --noconfirm` para git y base-devel si faltan.
-2. `install_yay()`: si no hay yay → `rm -rf /tmp/yay`, clone del AUR, `makepkg -si --noconfirm`.
-3. `install_aur_deps()`: loop `yay -S --noconfirm` sobre 14 paquetes AUR (lista completa abajo).
-4. `download_pkgbuild()`: curl del PKGBUILD a `/tmp/sbdots`.
-5. `build()`: `makepkg -si --noconfirm` — clona el repo, construye wheel Python + compila `bin/sbdots-actions.cpp` con g++, e instala vía pacman: CLI en `/usr/bin`, dotfiles en `/usr/share/sbdots`, defaults en `/etc/sbdots`, services en `/usr/lib/systemd/user` (**no** los habilita). Arrastra ~40 depends oficiales.
-6. `run_setup()`: `sbdots install` → **ROTO** (el comando es `init`).
+1. `install_system_deps()`: `sudo pacman -S --needed --noconfirm` for git and base-devel if missing.
+2. `install_yay()`: if yay is not present → `rm -rf /tmp/yay`, clone from the AUR, `makepkg -si --noconfirm`.
+3. `install_aur_deps()`: `yay -S --noconfirm` loop over 14 AUR packages (full list below).
+4. `download_pkgbuild()`: curl of the PKGBUILD to `/tmp/sbdots`.
+5. `build()`: `makepkg -si --noconfirm` — clones the repo, builds the Python wheel + compiles `bin/sbdots-actions.cpp` with g++, and installs via pacman: CLI in `/usr/bin`, dotfiles in `/usr/share/sbdots`, defaults in `/etc/sbdots`, services in `/usr/lib/systemd/user` (does **not** enable them). Pulls in ~40 official depends.
+6. `run_setup()`: `sbdots install` → **BROKEN** (the command is `init`).
 
-**Fase 2 — `sbdots init` (`SBDotsInitializer.install()`):**
+**Phase 2 — `sbdots init` (`SBDotsInitializer.install()`):**
 
-- `_validators.py::is_already_installed()`: solo chequea `~/Dotfiles`, `~/Wallpapers`, `~/.sbdots` — si existen, WARN y sigue igual.
-- `confirm()` interactivo.
-- `ComponentsManager`, 3 pasos:
-  - **DotfilesInstaller (crítico)**: valida fuentes en `/usr/share/sbdots/configs` → si existe `~/Dotfiles` **lo borra entero** (`shutil.rmtree`, `dotfiles.py:76-78`) → copia configs a `~/Dotfiles` → verifica → `_remove_existing_configs()`: **borra `~/.config/<X>` para 17 componentes sin backup** (atuin, btop, cava, fastfetch, fish, gtk-3.0, gtk-4.0, hypr, kitty, matugen, neofetch, qt5ct, qt6ct, rofi, swaync, waybar, waypaper, wlogout) → `_create_links()`: symlink `~/Dotfiles/<X>` → `~/.config/<X>`.
-  - **WallpapersInstaller (crítico)**: copia wallpapers a `~/Wallpapers` + avatar a `~/.sbdots/.avatar`; opcionalmente clona `github.com/sbalghari/Wallpapers` a `/tmp`.
-  - **OptPackagesInstaller (no crítico)**: menú multiselect de 11 paquetes opcionales con `yay -S --noconfirm` bajo `SudoKeepAlive` (thread que refresca `sudo -v` cada 60s, máx 30 min, `sudo -k` al salir).
-- `PostInstallHooks`: `systemctl --user daemon-reload` + `systemctl --user start --now` de cada `sbdots-*.service` (solo user scope, solo start, nunca enable — el CHANGELOG confirma el cambio enable→start a propósito); `waypaper --restore`.
-- Mensaje final: "Please restart your PC once before using".
+- `_validators.py::is_already_installed()`: only checks `~/Dotfiles`, `~/Wallpapers`, `~/.sbdots` — if they exist, WARN and continues anyway.
+- Interactive `confirm()`.
+- `ComponentsManager`, 3 steps:
+  - **DotfilesInstaller (critical)**: validates sources in `/usr/share/sbdots/configs` → if `~/Dotfiles` exists **deletes it entirely** (`shutil.rmtree`, `dotfiles.py:76-78`) → copies configs to `~/Dotfiles` → verifies → `_remove_existing_configs()`: **deletes `~/.config/<X>` for 17 components without backup** (atuin, btop, cava, fastfetch, fish, gtk-3.0, gtk-4.0, hypr, kitty, matugen, neofetch, qt5ct, qt6ct, rofi, swaync, waybar, waypaper, wlogout) → `_create_links()`: symlink `~/Dotfiles/<X>` → `~/.config/<X>`.
+  - **WallpapersInstaller (critical)**: copies wallpapers to `~/Wallpapers` + avatar to `~/.sbdots/.avatar`; optionally clones `github.com/sbalghari/Wallpapers` to `/tmp`.
+  - **OptPackagesInstaller (non-critical)**: multiselect menu of 11 optional packages with `yay -S --noconfirm` under `SudoKeepAlive` (thread that refreshes `sudo -v` every 60s, max 30 min, `sudo -k` on exit).
+- `PostInstallHooks`: `systemctl --user daemon-reload` + `systemctl --user start --now` of each `sbdots-*.service` (user scope only, start only, never enable — the CHANGELOG confirms the enable→start change was deliberate); `waypaper --restore`.
+- Final message: "Please restart your PC once before using".
 
-**Runtime post-instalación** (`hyprland.lua` al login): `sbdotsctl waybar --start`, hyprpolkitagent, swaync, los 2 daemons sbdots, wl-paste, udiskie, `devify` (AUR, **no está en deps — falla silenciosa**), `waypaper --restore`.
+**Post-install runtime** (`hyprland.lua` at login): `sbdotsctl waybar --start`, hyprpolkitagent, swaync, the 2 sbdots daemons, wl-paste, udiskie, `devify` (AUR, **not in deps — silent failure**), `waypaper --restore`.
 
-## Puntos de sudo (exactos)
+## Sudo points (exact)
 
-Instalador:
+Installer:
 
 - `install.sh:49` — `sudo pacman -S --needed --noconfirm "$dep"` (git, base-devel).
-- `install.sh:69` y `:105` — `makepkg -si --noconfirm` (×2: yay y sbdots-git; makepkg invoca sudo pacman internamente).
-- `install.sh:79` — `yay -S --noconfirm <pkg>` (×14 AUR; yay eleva con sudo internamente).
-- `src/sbdots/library/sudo_keep_alive.py:33` `sudo -v`, `:61` `sudo -v` en loop cada 60s (thread daemon, máx 30 min), `:82` `sudo -k` — solo envuelve la instalación de paquetes opcionales (`packages.py:63`).
-- `src/sbdots/library/pkg_utils.py:23` — `yay -S <pkg> --noconfirm --quiet` (opcionales).
+- `install.sh:69` and `:105` — `makepkg -si --noconfirm` (×2: yay and sbdots-git; makepkg invokes sudo pacman internally).
+- `install.sh:79` — `yay -S --noconfirm <pkg>` (×14 AUR; yay elevates with sudo internally).
+- `src/sbdots/library/sudo_keep_alive.py:33` `sudo -v`, `:61` `sudo -v` in a loop every 60s (daemon thread, max 30 min), `:82` `sudo -k` — only wraps the optional package installation (`packages.py:63`).
+- `src/sbdots/library/pkg_utils.py:23` — `yay -S <pkg> --noconfirm --quiet` (optional packages).
 
-Runtime (disparados por el usuario después):
+Runtime (triggered by the user afterwards):
 
-- `src/sbdots/ctl/updates.py:72` — `sudo pacman -Syu --noconfirm`, más `yay/paru -Syu --noconfirm`, `pacman -Rns <huérfanos> --noconfirm`, `pacman -Sc --noconfirm` y `reboot`, vía `run_sudo_cmd` (`commands.py:123`: wrapper pexpect que detecta el prompt de sudo e inyecta la contraseña pedida por el CLI; desactiva el logfile durante el password, pero loguea el output a `/tmp/sudo_output.log` — path predecible en /tmp, leak menor).
-- `dotfiles/configs/waybar/scripts/installupdates.sh:47` — `sudo pacman -Syu --noconfirm`; `:59` — `sudo pacman -Rns $(pacman -Qdtq) --noconfirm` (limpieza de huérfanos sin confirmación: riesgosa en un sistema con restos de ML4W).
+- `src/sbdots/ctl/updates.py:72` — `sudo pacman -Syu --noconfirm`, plus `yay/paru -Syu --noconfirm`, `pacman -Rns <orphans> --noconfirm`, `pacman -Sc --noconfirm` and `reboot`, via `run_sudo_cmd` (`commands.py:123`: pexpect wrapper that detects the sudo prompt and injects the password requested by the CLI; disables the logfile during the password, but logs the output to `/tmp/sudo_output.log` — predictable path in /tmp, minor leak).
+- `dotfiles/configs/waybar/scripts/installupdates.sh:47` — `sudo pacman -Syu --noconfirm`; `:59` — `sudo pacman -Rns $(pacman -Qdtq) --noconfirm` (orphan cleanup without confirmation: risky on a system with ML4W leftovers).
 
-**No hay**: sudo a archivos de sistema fuera de pacman, ediciones de `/etc` (solo el PKGBUILD instala `/etc/sbdots/rich_theme.toml` como parte del paquete), ni escrituras privilegiadas arbitrarias.
+**Not present**: sudo on system files outside pacman, edits to `/etc` (only the PKGBUILD installs `/etc/sbdots/rich_theme.toml` as part of the package), or arbitrary privileged writes.
 
-## Qué toca de boot / drivers / display manager
+## What it touches in boot / drivers / display manager
 
-Grep exhaustivo sobre todo el árbol (`*.py`, `*.sh`, `*.service`, PKGBUILD, `*.toml`, `*.conf`, `*.lua`) por `sddm|gdm|grub|mkinitcpio|systemd-boot|nvidia|lightdm|systemctl|dd|rm -rf`: **cero modificaciones de boot, bootloader, initramfs, drivers o display manager**.
+Exhaustive grep over the whole tree (`*.py`, `*.sh`, `*.service`, PKGBUILD, `*.toml`, `*.conf`, `*.lua`) for `sddm|gdm|grub|mkinitcpio|systemd-boot|nvidia|lightdm|systemctl|dd|rm -rf`: **zero modifications to boot, bootloader, initramfs, drivers or display manager**.
 
-- `sddm`: único hit en `src/sbdots/constants.py:103` — string dentro de `OPTIONAL_PACKAGES`; si el usuario lo marca se **instala** el paquete, pero nunca se ejecuta `systemctl enable sddm` (no existe ningún `systemctl enable` en el repo; el CHANGELOG registra el fix "use start instead of enable").
-- `systemctl`: solo scope `--user` (`postinstall/start_service.py:36,64`; `hypr/hyprland.lua:32-35`; `hypridle.conf:25` con `systemctl suspend` on-timeout — comando estándar de idle).
-- `nvidia`: solo valor cosmético en `btop.conf:267-268`.
-- `rm -rf`: solo `install.sh:64,73` sobre `/tmp/yay`.
-- `gdm|grub|mkinitcpio|systemd-boot|lightdm|dd`: cero hits.
-- Los dos `.service` son unidades de **usuario** en `/usr/lib/systemd/user`, `WantedBy=default.target`, sin privilegios (el cliplistener incluso con `NoNewPrivileges=true` y `PrivateTmp=true`).
-- Tampoco hay `chsh`/`usermod`/autologin/greetd/xinitrc (grep aparte: cero hits) — instala fish pero no lo setea como shell por defecto.
+- `sddm`: only hit in `src/sbdots/constants.py:103` — string inside `OPTIONAL_PACKAGES`; if the user selects it the package gets **installed**, but `systemctl enable sddm` is never run (there is no `systemctl enable` anywhere in the repo; the CHANGELOG records the fix "use start instead of enable").
+- `systemctl`: `--user` scope only (`postinstall/start_service.py:36,64`; `hypr/hyprland.lua:32-35`; `hypridle.conf:25` with `systemctl suspend` on-timeout — standard idle command).
+- `nvidia`: cosmetic value only in `btop.conf:267-268`.
+- `rm -rf`: only `install.sh:64,73` on `/tmp/yay`.
+- `gdm|grub|mkinitcpio|systemd-boot|lightdm|dd`: zero hits.
+- The two `.service` files are **user** units in `/usr/lib/systemd/user`, `WantedBy=default.target`, unprivileged (the cliplistener even with `NoNewPrivileges=true` and `PrivateTmp=true`).
+- There is also no `chsh`/`usermod`/autologin/greetd/xinitrc (separate grep: zero hits) — it installs fish but does not set it as the default shell.
 
-## Backup de configs existentes
+## Backup of existing configs
 
-**NO EXISTE.** Confirmado en código: `dotfiles.py:115` tiene el comentario literal `# TODO: Add backups` justo arriba de `_remove_existing_configs()`, que hace `shutil.rmtree`/unlink de `~/.config/<componente>` para los 17 componentes (incluye `hypr`, `waybar`, `kitty`, `rofi`, `swaync`, `wlogout`, `gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct`, `fish`…). Además `dotfiles.py:76-78` borra `~/Dotfiles` entero si ya existe. Daño colateral: borrar `gtk-3.0` se lleva `~/.config/gtk-3.0/bookmarks` (marcadores del file manager). No hay comando uninstall, no hay restore, no hay backup con timestamp como sí hace ML4W (`~/.ml4w-backup`). Si `sbdots init` falla a mitad de camino (después de borrar, antes de symlinkear), el usuario queda sin configs de Hyprland/waybar y la próxima sesión arranca rota, sin rollback automático.
+**DOES NOT EXIST.** Confirmed in code: `dotfiles.py:115` has the literal comment `# TODO: Add backups` right above `_remove_existing_configs()`, which does `shutil.rmtree`/unlink of `~/.config/<component>` for the 17 components (includes `hypr`, `waybar`, `kitty`, `rofi`, `swaync`, `wlogout`, `gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct`, `fish`…). In addition, `dotfiles.py:76-78` deletes `~/Dotfiles` entirely if it already exists. Collateral damage: deleting `gtk-3.0` takes `~/.config/gtk-3.0/bookmarks` (file manager bookmarks) with it. There is no uninstall command, no restore, no timestamped backup like ML4W does (`~/.ml4w-backup`). If `sbdots init` fails halfway (after deleting, before symlinking), the user is left without Hyprland/waybar configs and the next session starts broken, with no automatic rollback.
 
-## Convivencia con el ML4W actual
+## Coexistence with the current ML4W
 
-**No puede convivir y no migra**: sbdots ignora por completo la existencia de ML4W. El único chequeo previo busca instalaciones viejas de SBDots, y aun encontrándolas solo warnea y sigue. Corriéndolo encima del sistema actual:
+**It cannot coexist and does not migrate**: sbdots completely ignores the existence of ML4W. The only prior check looks for old SBDots installations, and even when it finds them it only warns and continues. Running it on top of the current system:
 
-1. **Paquetes**: no desinstala nada de ML4W; instala ~55 paquetes propios encima. Solapamiento grande (waybar, rofi, swaync, kitty, hyprlock, hypridle ya están). Conflicto probable: `qt6ct-kde`/`qt5ct-kde` (AUR) contra `qt6ct`/`qt5ct` vanilla de ML4W — con `yay --noconfirm` puede abortar el install.sh a mitad de la fase de paquetes. Suma segundo icon theme (tela-circle + breeze), segundo cursor (bibata), fish+starship, y `awww` como daemon de wallpaper conviviendo con el de ML4W (no arrancan a la vez, pero quedan instalados).
-2. **Configs**: `sbdots init` borra sin backup `~/.config/hypr`, waybar, rofi, swaync, wlogout, kitty y 11 más — destruye la instalación ML4W viva **y también el reskin manual ya hecho** (los CSS tuneados de waybar/rofi/swaync/wlogout/kitty viven exactamente en esas carpetas). ML4W queda decapitado pero no removido: sobreviven `~/.ml4w*`, las apps ML4W (settings, welcome, sidebar), sus paquetes y su caché — y son una trampa: cualquier utilidad ML4W de "restore/update" ejecutada después intentará reescribir `~/.config` pisando los symlinks de sbdots.
-3. **Sesión**: no toca SDDM ni la sesión — se sigue entrando por el login actual; Hyprland 0.55.4 encuentra `hyprland.lua` (precedencia sobre `.conf`) y carga el mundo sbdots completo: keybinds distintos, `sbdotsctl` gestionando waybar, matugen en vez del theme engine ML4W. No hay "dos waybars" en runtime porque el reemplazo es total, pero sí dos ecosistemas instalados a nivel paquetes.
-4. **El camino real**: como install.sh se rompe en `sbdots install`, el escenario más probable hoy es: instala ~30-55 paquetes, aborta, y no toca ni un config — migración a medias que hay que terminar a mano con `sbdots init`, asumiendo todos los riesgos de borrado sin backup. Una migración limpia exigiría: backup manual completo de `~/.config`, desinstalar ML4W con su propio uninstaller primero, y recién ahí sbdots — nada de eso lo hace el instalador.
+1. **Packages**: uninstalls nothing from ML4W; installs ~55 of its own packages on top. Large overlap (waybar, rofi, swaync, kitty, hyprlock, hypridle are already there). Likely conflict: `qt6ct-kde`/`qt5ct-kde` (AUR) against ML4W's vanilla `qt6ct`/`qt5ct` — with `yay --noconfirm` it can abort install.sh halfway through the package phase. Adds a second icon theme (tela-circle + breeze), a second cursor (bibata), fish+starship, and `awww` as a wallpaper daemon coexisting with ML4W's (they do not start at the same time, but both remain installed).
+2. **Configs**: `sbdots init` deletes without backup `~/.config/hypr`, waybar, rofi, swaync, wlogout, kitty and 11 more — destroys the live ML4W installation **and also the manual reskin already done** (the tuned waybar/rofi/swaync/wlogout/kitty CSS lives exactly in those folders). ML4W is left decapitated but not removed: `~/.ml4w*`, the ML4W apps (settings, welcome, sidebar), their packages and their cache survive — and they are a trap: any ML4W "restore/update" utility run afterwards will try to rewrite `~/.config`, overwriting the sbdots symlinks.
+3. **Session**: does not touch SDDM or the session — login continues through the current login; Hyprland 0.55.4 finds `hyprland.lua` (precedence over `.conf`) and loads the full sbdots world: different keybinds, `sbdotsctl` managing waybar, matugen instead of the ML4W theme engine. There are no "two waybars" at runtime because the replacement is total, but there are two ecosystems installed at the package level.
+4. **The real path**: since install.sh breaks at `sbdots install`, the most likely scenario today is: it installs ~30-55 packages, aborts, and does not touch a single config — a half-done migration that has to be finished by hand with `sbdots init`, taking on all the risks of deletion without backup. A clean migration would require: full manual backup of `~/.config`, uninstalling ML4W with its own uninstaller first, and only then sbdots — the installer does none of that.
 
-## Paquetes instalados
+## Installed packages
 
-**install.sh vía yay (14, AUR)**: nautilus, nautilus-code, nautilus-copy-path, nautilus-hide, matugen-bin, python-inquirerpy (vestigial — cero imports en `src/`), qt6ct-kde, qt5ct-kde (conflicto potencial con qt6ct/qt5ct de ML4W), hyprshade, bibata-cursor-theme-bin, aur-check-updates, waypaper, wlogout, neofetch (upstream archivado).
+**install.sh via yay (14, AUR)**: nautilus, nautilus-code, nautilus-copy-path, nautilus-hide, matugen-bin, python-inquirerpy (vestigial — zero imports in `src/`), qt6ct-kde, qt5ct-kde (potential conflict with ML4W's qt6ct/qt5ct), hyprshade, bibata-cursor-theme-bin, aur-check-updates, waypaper, wlogout, neofetch (upstream archived).
 
-**PKGBUILD depends (~40, repos oficiales — awww/uwsm/tela/hyprpolkitagent verificados contra archlinux.org)**: atuin, power-profiles-daemon, hyprpolkitagent, breeze-icons, breeze-gtk, awww, blueman, brightnessctl, btop, eza, fastfetch, figlet, fish, gnome-keyring, hypridle, hyprlock, hyprpicker, hyprshot, kitty, kwalletmanager, noto-fonts, pacman-contrib, pavucontrol, polkit-kde-agent, python-pexpect, python-psutil, python-pyfiglet, python-requests, python-rich, python-setproctitle, python-typer, rofi, starship, swaync, tela-circle-icon-theme-standard, ttf-dejavu, ttf-jetbrains-mono(+nerd), udiskie, uwsm, waybar, wl-clipboard. makedepends: git, python-build/installer/wheel/setuptools, gcc.
+**PKGBUILD depends (~40, official repos — awww/uwsm/tela/hyprpolkitagent verified against archlinux.org)**: atuin, power-profiles-daemon, hyprpolkitagent, breeze-icons, breeze-gtk, awww, blueman, brightnessctl, btop, eza, fastfetch, figlet, fish, gnome-keyring, hypridle, hyprlock, hyprpicker, hyprshot, kitty, kwalletmanager, noto-fonts, pacman-contrib, pavucontrol, polkit-kde-agent, python-pexpect, python-psutil, python-pyfiglet, python-requests, python-rich, python-setproctitle, python-typer, rofi, starship, swaync, tela-circle-icon-theme-standard, ttf-dejavu, ttf-jetbrains-mono(+nerd), udiskie, uwsm, waybar, wl-clipboard. makedepends: git, python-build/installer/wheel/setuptools, gcc.
 
-**Opcionales a elección (11)**: visual-studio-code-bin, vlc, smile, sddm, obs-studio, mission-center, freedownloadmanager-bin, loupe, libreoffice-fresh, gnome-text-editor, ark.
+**Optional, user's choice (11)**: visual-studio-code-bin, vlc, smile, sddm, obs-studio, mission-center, freedownloadmanager-bin, loupe, libreoffice-fresh, gnome-text-editor, ark.
 
-**No desinstala nada**: cero `pacman -R` en el instalador (el único `-Rns` es la limpieza de huérfanos en las herramientas de update runtime, peligrosa post-migración porque los deps huérfanos de ML4W caerían ahí). Deps rotas detectadas: `devify` (hyprland.lua lo ejecuta al arrancar, no declarado — falla silenciosa) y `gum` (`installupdates.sh` lo requiere y sale con error si falta; no está en depends).
+**Uninstalls nothing**: zero `pacman -R` in the installer (the only `-Rns` is the orphan cleanup in the runtime update tools, dangerous post-migration because ML4W's orphaned deps would fall into it). Broken deps detected: `devify` (hyprland.lua runs it at startup, not declared — silent failure) and `gum` (`installupdates.sh` requires it and exits with an error if missing; not in depends).
 
-## Estado de mantenimiento
+## Maintenance status
 
-Confirmado con evidencia fresca (API de GitHub, consultada hoy 2026-07-05): el repo **no está archivado** (`archived: false`, `disabled: false`), pero el desarrollo está **detenido por declaración explícita del autor** en el README de `main` (texto literal): *"[!WARNING] Further Development is stopped at the moment. You could use the install.sh but it isn't fully tested, so use it at your own risk."*
+Confirmed with fresh evidence (GitHub API, queried today 2026-07-05): the repo **is not archived** (`archived: false`, `disabled: false`), but development is **stopped by the author's explicit statement** in the `main` README (literal text): *"[!WARNING] Further Development is stopped at the moment. You could use the install.sh but it isn't fully tested, so use it at your own risk."*
 
-- Último push: 2026-06-18 18:18 UTC — y es precisamente "Update README.md", el commit donde presumiblemente anuncia el freeze.
-- Último trabajo real de código: 2026-06-08 ("merge branch dev into main", "style: improve waybar and swaync look"). ~4 semanas sin actividad; freeze anunciado hace ~2.5 semanas.
-- Issues abiertos: 0. Proyecto chico: 83 stars, 4 forks, un solo mantenedor (Saifullah Balghari).
-- Los últimos issues/PRs (#20-#27, mayo-junio 2026) muestran una refactor grande a medio asentar (migración a Lua, a systemd services, a matugen), rematada con commits "fix incomplete/incorrect stuff introduced by previous refactors". El freeze agarró al proyecto recién salido de esa reestructuración, y el bug `sbdots install` vs `init` quedó sin arreglar.
-- Versión: 0.0.3-alpha en `pyproject.toml` (0.1.0 en CHANGELOG, 2026-06-01) — alpha por admisión propia.
+- Last push: 2026-06-18 18:18 UTC — and it is precisely "Update README.md", the commit where the freeze is presumably announced.
+- Last real code work: 2026-06-08 ("merge branch dev into main", "style: improve waybar and swaync look"). ~4 weeks without activity; freeze announced ~2.5 weeks ago.
+- Open issues: 0. Small project: 83 stars, 4 forks, a single maintainer (Saifullah Balghari).
+- The latest issues/PRs (#20-#27, May-June 2026) show a large refactor that had not fully settled (migration to Lua, to systemd services, to matugen), topped off with commits "fix incomplete/incorrect stuff introduced by previous refactors". The freeze caught the project just out of that restructuring, and the `sbdots install` vs `init` bug was left unfixed.
+- Version: 0.0.3-alpha in `pyproject.toml` (0.1.0 in CHANGELOG, 2026-06-01) — alpha by its own admission.
 
-## Riesgos (por qué ROJO)
+## Risks (why RED)
 
-1. **Proyecto muerto por admisión propia**: freeze declarado en el README, último código real 2026-06-08, un solo mantenedor. Migrar el daily driver a un framework con daemons propios, CLI propio y formato Lua de Hyprland 0.55 recién estrenado, sin nadie que arregle breakages futuros de Hyprland/waybar, es adoptar deuda sin soporte.
-2. **Instalador verificablemente roto**: `install.sh` termina en `sbdots install`, comando inexistente (el CLI solo registra `init`). Corrido tal cual: instala ~30-55 paquetes y aborta. El propio README avisa "isn't fully tested, use at your own risk".
-3. **Borrado destructivo sin backup**: `sbdots init` hace rmtree de 17 directorios de `~/.config` y de `~/Dotfiles` entero, con un `# TODO: Add backups` literal en el código. Destruye la instalación ML4W viva y el reskin manual ya hecho. Si falla a mitad, la próxima sesión arranca rota sin rollback. ML4W al menos respalda antes de pisar; esto no.
-4. **Cero conciencia de migración**: no detecta ni limpia ML4W. Quedarían `~/.ml4w*`, apps y paquetes ML4W huérfanos, con la trampa de que cualquier herramienta ML4W ejecutada después pisaría los symlinks de sbdots; y las herramientas de update de sbdots hacen `pacman -Rns $(pacman -Qdtq) --noconfirm`, que post-migración podría llevarse deps huérfanas de ML4W sin preguntar.
-5. **Conflictos de paquetes probables**: `qt6ct-kde`/`qt5ct-kde` (AUR) vs `qt6ct`/`qt5ct` de ML4W pueden abortar el install.sh con `--noconfirm`; deps rotas menores (`devify` usado pero no declarado, `gum` requerido por script de waybar y ausente).
+1. **Project dead by its own admission**: freeze declared in the README, last real code 2026-06-08, a single maintainer. Migrating the daily driver to a framework with its own daemons, its own CLI and the brand-new Hyprland 0.55 Lua format, with nobody to fix future Hyprland/waybar breakages, is taking on unsupported debt.
+2. **Verifiably broken installer**: `install.sh` ends in `sbdots install`, a nonexistent command (the CLI only registers `init`). Run as is: it installs ~30-55 packages and aborts. The README itself warns "isn't fully tested, use at your own risk".
+3. **Destructive deletion without backup**: `sbdots init` does rmtree of 17 `~/.config` directories and of `~/Dotfiles` entirely, with a literal `# TODO: Add backups` in the code. Destroys the live ML4W installation and the manual reskin already done. If it fails halfway, the next session starts broken with no rollback. ML4W at least backs up before overwriting; this does not.
+4. **Zero migration awareness**: does not detect or clean up ML4W. `~/.ml4w*`, orphaned ML4W apps and packages would remain, with the trap that any ML4W tool run afterwards would overwrite the sbdots symlinks; and the sbdots update tools run `pacman -Rns $(pacman -Qdtq) --noconfirm`, which post-migration could remove ML4W's orphaned deps without asking.
+5. **Likely package conflicts**: `qt6ct-kde`/`qt5ct-kde` (AUR) vs ML4W's `qt6ct`/`qt5ct` can abort install.sh with `--noconfirm`; minor broken deps (`devify` used but not declared, `gum` required by a waybar script and absent).
 
-**Camino recomendado en vez de migrar**: seguir con la estrategia actual (VERDE) de cherry-pickear configs/CSS de sbdots sobre la plumbing ML4W — el mejor uso posible de un repo congelado: los dotfiles (waybar, rofi, swaync, kitty, matugen templates, hyprland.lua como referencia) son la parte valiosa y estable; el framework Python/instalador es la parte alpha, rota y sin futuro. Si igual se quisiera el stack completo: backup total de `~/.config` primero, desinstalar ML4W con su propio uninstaller, instalar el paquete con makepkg a mano y correr `sbdots init` (no `install`), sabiendo que el mantenimiento queda en manos propias.
+**Recommended path instead of migrating**: continue with the current strategy (GREEN) of cherry-picking sbdots configs/CSS on top of the ML4W plumbing — the best possible use of a frozen repo: the dotfiles (waybar, rofi, swaync, kitty, matugen templates, hyprland.lua as a reference) are the valuable and stable part; the Python framework/installer is the alpha, broken part with no future. If the full stack is still wanted: full backup of `~/.config` first, uninstall ML4W with its own uninstaller, install the package with makepkg by hand and run `sbdots init` (not `install`), accepting that maintenance is on you.
 
-## Estado (2026-07-05)
+## Status (2026-07-05)
 
-**Esto es SOLO la auditoría.** La migración real — correr `install.sh`, `makepkg` o `sbdots init` — **NO se ejecutó**: no se instaló ningún paquete, no se tocó ningún archivo de `~/.config` ni del sistema. Todo lo descrito arriba sale de leer el código del repo y de la API de GitHub, no de ejecutar nada en esta máquina. La decisión de migrar (o de quedarse con el cherry-picking sobre ML4W, que es lo recomendado) queda pendiente del usuario tras leer este documento.
+**This is ONLY the audit.** The actual migration — running `install.sh`, `makepkg` or `sbdots init` — **was NOT executed**: no package was installed, no file in `~/.config` or on the system was touched. Everything described above comes from reading the repo code and the GitHub API, not from running anything on this machine. The decision to migrate (or to stay with cherry-picking on top of ML4W, which is the recommendation) is left to the user after reading this document.
