@@ -11,6 +11,20 @@ return {
     opts = { use_diagnostic_signs = true }, -- Use diagnostic signs for trouble.nvim
   },
 
+  -- Change configuration for neo-tree.nvim
+  {
+    -- Plugin: neo-tree.nvim
+    -- URL: https://github.com/nvim-neo-tree/neo-tree.nvim
+    -- Description: File explorer tree. Moved to the right side so the Claude Code
+    -- terminal (split_side = "left") keeps the left column.
+    "nvim-neo-tree/neo-tree.nvim",
+    opts = {
+      window = {
+        position = "right",
+      },
+    },
+  },
+
   -- Add symbols-outline.nvim plugin
   {
     -- Plugin: symbols-outline.nvim
